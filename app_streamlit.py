@@ -194,7 +194,7 @@ def get_prediction_image(image_file, overlay=False):
 
 def find_ground_truth(image_name):
     """
-    Cherche automatiquement le ground truth correspondant à une image.
+    Cherche automatiquement le ground truth correspondant à une image Cityscapes.
 
     Args:
         image_name: Nom de l'image (ex: frankfurt_000000_000294_leftImg8bit.png)
@@ -210,33 +210,37 @@ def find_ground_truth(image_name):
     if "_leftImg8bit" not in image_name:
         return None
 
+    # Extraire le nom de base (sans le suffixe _leftImg8bit)
     base_name = image_name.replace("_leftImg8bit.png", "").replace("_leftImg8bit.jpg", "").replace("_leftImg8bit.jpeg", "")
 
-    # Chemins possibles du dataset
-    possible_paths = [
-        "/home/ser/Bureau/Projet_image_new/data/cityscapes",
-        "/home/ser/Bureau/Projet_image_new/data/cityscapes_flipped",
-        "/home/ser/Bureau/Projet_image_new/data/cityscapes_flipped/flip_h",
-        "data/cityscapes",
-        "./data/cityscapes"
-    ]
+    # Nom du fichier GT correspondant
+    gt_filename = f"{base_name}_gtFine_labelIds.png"
 
-    for dataset_path in possible_paths:
-        if not os.path.exists(dataset_path):
-            continue
+    # Chercher dans tout le dossier data de manière récursive
+    data_root = "/home/ser/Bureau/Projet_image_new/data"
 
-        # Chercher dans tous les splits (train, val, test)
-        for split in ["train", "val", "test", "**"]:
-            # Chercher le fichier gtFine_labelIds
-            gt_pattern = f"{dataset_path}/gtFine/{split}/**/{base_name}_gtFine_labelIds.png"
+    if os.path.exists(data_root):
+        # Recherche récursive du fichier GT
+        gt_pattern = f"{data_root}/**/{gt_filename}"
+        matches = glob(gt_pattern, recursive=True)
 
-            matches = glob(gt_pattern, recursive=True)
+        if matches:
+            try:
+                # Prendre le premier match trouvé
+                return Image.open(matches[0]).convert('L')
+            except Exception as e:
+                print(f"Erreur lors du chargement du GT: {e}")
+                pass
 
-            if matches:
-                try:
-                    return Image.open(matches[0]).convert('L')
-                except:
-                    pass
+    # Chercher aussi dans le répertoire courant (au cas où)
+    local_pattern = f"**/{gt_filename}"
+    local_matches = glob(local_pattern, recursive=True)
+
+    if local_matches:
+        try:
+            return Image.open(local_matches[0]).convert('L')
+        except:
+            pass
 
     return None
 
