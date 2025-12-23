@@ -241,8 +241,16 @@ def main():
         pour véhicules autonomes.
 
         **Modèle** : ConvNeXt-OCR
-        **Performance** : 79.21% mIoU
         **Framework** : Keras/TensorFlow
+        """)
+
+        st.markdown("#### 📊 Performance du Modèle")
+        st.markdown("""
+        - **Validation mIoU** : **79.21%**
+        - **Train mIoU** : 86.73%
+        - **Pixel Accuracy** : 94.8%
+        - **Architecture** : ConvNeXt-Base + OCR
+        - **Classes** : 8 catégories Cityscapes
         """)
 
         st.markdown("---")
@@ -371,6 +379,15 @@ def main():
                 # Distribution des classes
                 if show_distribution:
                     st.markdown("### 📈 Distribution des Classes")
+
+                    st.info("""
+                    **ℹ️ Note** : Cette section montre la **distribution des classes prédites** dans l'image.
+
+                    Pour calculer l'**IoU** (Intersection over Union) ou le **mIoU**, il faudrait comparer
+                    la prédiction avec le masque ground truth. En production, on dispose rarement du ground truth.
+
+                    Les métriques globales du modèle (79.21% mIoU) sont affichées dans la barre latérale.
+                    """)
 
                     distribution = result["class_distribution"]
 
