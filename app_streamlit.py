@@ -194,10 +194,14 @@ def get_prediction_image(image_file, overlay=False):
 
 def find_ground_truth(image_name):
     """
-    Cherche automatiquement le ground truth correspondant à une image Cityscapes.
+    Cherche automatiquement le ground truth correspondant à une image.
+
+    Supporte deux formats :
+    1. Cityscapes: [city]_[seq]_[frame]_leftImg8bit.png → [base]_gtFine_labelIds.png
+    2. Augmented: [name]_image.png → [name]_label.png
 
     Args:
-        image_name: Nom de l'image (ex: frankfurt_000000_000294_leftImg8bit.png)
+        image_name: Nom de l'image
 
     Returns:
         PIL.Image ou None si non trouvé
@@ -205,42 +209,64 @@ def find_ground_truth(image_name):
     import os
     from glob import glob
 
-    # Parser le nom de fichier Cityscapes
-    # Format: [city]_[seq]_[frame]_leftImg8bit.png
-    if "_leftImg8bit" not in image_name:
+    data_root = "/home/ser/Bureau/Projet_image_new/data"
+    gt_filename = None
+
+    # Format 1: Images Cityscapes standard
+    if "_leftImg8bit" in image_name:
+        base_name = image_name.replace("_leftImg8bit.png", "").replace("_leftImg8bit.jpg", "").replace("_leftImg8bit.jpeg", "")
+        gt_filename = f"{base_name}_gtFine_labelIds.png"
+
+    # Format 2: Images augmentées (test_image.png → test_label.png)
+    elif "_image." in image_name:
+        base_name = image_name.replace("_image.png", "").replace("_image.jpg", "").replace("_image.jpeg", "")
+        gt_filename = f"{base_name}_label.png"
+
+    # Format 3: Fichiers simples (test.png → test_label.png ou test_gt.png)
+    else:
+        # Essayer plusieurs suffixes possibles
+        base_name = image_name.rsplit('.', 1)[0]  # Enlever l'extension
+        possible_suffixes = ["_label", "_gt", "_gtFine_labelIds", "_mask"]
+
+        for suffix in possible_suffixes:
+            gt_filename = f"{base_name}{suffix}.png"
+
+            # Chercher dans le même dossier d'abord
+            if os.path.exists(data_root):
+                gt_pattern = f"{data_root}/**/{gt_filename}"
+                matches = glob(gt_pattern, recursive=True)
+
+                if matches:
+                    try:
+                        return Image.open(matches[0]).convert('L')
+                    except:
+                        pass
+
         return None
 
-    # Extraire le nom de base (sans le suffixe _leftImg8bit)
-    base_name = image_name.replace("_leftImg8bit.png", "").replace("_leftImg8bit.jpg", "").replace("_leftImg8bit.jpeg", "")
-
-    # Nom du fichier GT correspondant
-    gt_filename = f"{base_name}_gtFine_labelIds.png"
-
-    # Chercher dans tout le dossier data de manière récursive
-    data_root = "/home/ser/Bureau/Projet_image_new/data"
-
-    if os.path.exists(data_root):
+    # Chercher le fichier GT
+    if gt_filename and os.path.exists(data_root):
         # Recherche récursive du fichier GT
         gt_pattern = f"{data_root}/**/{gt_filename}"
         matches = glob(gt_pattern, recursive=True)
 
         if matches:
             try:
-                # Prendre le premier match trouvé
                 return Image.open(matches[0]).convert('L')
             except Exception as e:
                 print(f"Erreur lors du chargement du GT: {e}")
                 pass
 
     # Chercher aussi dans le répertoire courant (au cas où)
-    local_pattern = f"**/{gt_filename}"
-    local_matches = glob(local_pattern, recursive=True)
+    if gt_filename:
+        local_pattern = f"**/{gt_filename}"
+        local_matches = glob(local_pattern, recursive=True)
 
-    if local_matches:
-        try:
-            return Image.open(local_matches[0]).convert('L')
-        except:
-            pass
+        if local_matches:
+            try:
+                return Image.open(local_matches[0]).convert('L')
+            except:
+                pass
 
     return None
 
