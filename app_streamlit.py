@@ -192,6 +192,55 @@ def get_prediction_image(image_file, overlay=False):
         return None
 
 
+def find_ground_truth(image_name):
+    """
+    Cherche automatiquement le ground truth correspondant à une image.
+
+    Args:
+        image_name: Nom de l'image (ex: frankfurt_000000_000294_leftImg8bit.png)
+
+    Returns:
+        PIL.Image ou None si non trouvé
+    """
+    import os
+    from glob import glob
+
+    # Parser le nom de fichier Cityscapes
+    # Format: [city]_[seq]_[frame]_leftImg8bit.png
+    if "_leftImg8bit" not in image_name:
+        return None
+
+    base_name = image_name.replace("_leftImg8bit.png", "").replace("_leftImg8bit.jpg", "").replace("_leftImg8bit.jpeg", "")
+
+    # Chemins possibles du dataset
+    possible_paths = [
+        "/home/ser/Bureau/Projet_image_new/data/cityscapes",
+        "/home/ser/Bureau/Projet_image_new/data/cityscapes_flipped",
+        "/home/ser/Bureau/Projet_image_new/data/cityscapes_flipped/flip_h",
+        "data/cityscapes",
+        "./data/cityscapes"
+    ]
+
+    for dataset_path in possible_paths:
+        if not os.path.exists(dataset_path):
+            continue
+
+        # Chercher dans tous les splits (train, val, test)
+        for split in ["train", "val", "test", "**"]:
+            # Chercher le fichier gtFine_labelIds
+            gt_pattern = f"{dataset_path}/gtFine/{split}/**/{base_name}_gtFine_labelIds.png"
+
+            matches = glob(gt_pattern, recursive=True)
+
+            if matches:
+                try:
+                    return Image.open(matches[0]).convert('L')
+                except:
+                    pass
+
+    return None
+
+
 def calculate_iou_metrics(pred_mask, gt_mask, num_classes=8):
     """
     Calcule les métriques IoU entre la prédiction et le ground truth.
@@ -351,17 +400,6 @@ def main():
         help="Sélectionnez une image de scène urbaine"
     )
 
-    # Upload optionnel du ground truth
-    st.markdown("### 🎯 Ground Truth (Optionnel)")
-    st.markdown("Uploadez le masque ground truth pour calculer l'IoU et le mIoU")
-
-    gt_file = st.file_uploader(
-        "Ground Truth (PNG)",
-        type=['png'],
-        help="Masque de segmentation réel (avec IDs de classes 0-7)",
-        key="ground_truth"
-    )
-
     if uploaded_file is not None:
         # Afficher l'image originale
         original_image = Image.open(uploaded_file)
@@ -372,6 +410,29 @@ def main():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.image(original_image, caption=f"{uploaded_file.name} ({original_image.size[0]}×{original_image.size[1]})", use_container_width=True)
+
+        # Chercher automatiquement le ground truth
+        st.markdown("---")
+        st.markdown("### 🎯 Ground Truth (pour calcul IoU)")
+
+        auto_gt = find_ground_truth(uploaded_file.name)
+
+        if auto_gt is not None:
+            st.success(f"✅ Ground truth trouvé automatiquement pour {uploaded_file.name}")
+            gt_image = auto_gt
+            gt_file = "auto"
+        else:
+            st.info("💡 Ground truth non trouvé automatiquement. Vous pouvez l'uploader manuellement ci-dessous.")
+            gt_file = st.file_uploader(
+                "Upload manuel du Ground Truth (PNG)",
+                type=['png'],
+                help="Masque de segmentation réel (avec IDs de classes 0-7)",
+                key="ground_truth"
+            )
+            if gt_file is not None:
+                gt_image = Image.open(gt_file).convert('L')
+            else:
+                gt_image = None
 
         # Options de prédiction
         st.markdown("---")
@@ -438,12 +499,11 @@ def main():
                         st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
 
                 # Calcul IoU si ground truth fourni
-                if gt_file is not None:
+                if gt_image is not None:
                     st.markdown("---")
                     st.markdown("### 🎯 Métriques IoU (avec Ground Truth)")
 
-                    # Charger le ground truth
-                    gt_image = Image.open(gt_file).convert('L')  # Grayscale
+                    # Convertir en array
                     gt_array = np.array(gt_image)
 
                     # Obtenir le masque prédit (IDs de classes, pas colorisé)
@@ -485,11 +545,13 @@ def main():
                 if show_distribution:
                     st.markdown("### 📈 Distribution des Classes")
 
-                    if gt_file is None:
+                    if gt_image is None:
                         st.info("""
                         **ℹ️ Note** : Cette section montre la **distribution des classes prédites** dans l'image.
 
-                        💡 **Pour calculer l'IoU et le mIoU**, uploadez le **Ground Truth** (masque réel) dans la section d'upload ci-dessus.
+                        💡 **Pour calculer l'IoU et le mIoU** :
+                        - Les images du dataset Cityscapes sont automatiquement détectées
+                        - Sinon, uploadez manuellement le Ground Truth ci-dessus
 
                         Les métriques globales du modèle (79.21% mIoU) sont affichées dans la barre latérale.
                         """)
