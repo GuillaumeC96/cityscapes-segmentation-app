@@ -55,9 +55,65 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS personnalisé
-st.markdown("""
+# CSS personnalisé avec dark mode
+def get_custom_css(dark_mode=False):
+    if dark_mode:
+        return """
 <style>
+    /* Dark Mode */
+    .stApp {
+        background-color: #0e1117;
+        color: #fafafa;
+    }
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: bold;
+        color: #58a6ff;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #8b949e;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .metric-card {
+        background-color: #161b22;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+        border: 1px solid #30363d;
+    }
+    .success-box {
+        background-color: #0d1117;
+        border-left: 5px solid #238636;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 0.25rem;
+        color: #7ee787;
+    }
+    .warning-box {
+        background-color: #0d1117;
+        border-left: 5px solid #d29922;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 0.25rem;
+        color: #e3b341;
+    }
+    .stButton>button {
+        background-color: #238636;
+        color: white;
+    }
+    .stButton>button:hover {
+        background-color: #2ea043;
+    }
+</style>
+"""
+    else:
+        return """
+<style>
+    /* Light Mode */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -92,7 +148,7 @@ st.markdown("""
         border-radius: 0.25rem;
     }
 </style>
-""", unsafe_allow_html=True)
+"""
 
 # ============================================================================
 # Fonctions Utilitaires
@@ -327,6 +383,46 @@ def calculate_iou_metrics(pred_mask, gt_mask, num_classes=8):
     }
 
 
+def get_dataset_images(split='test'):
+    """
+    Liste toutes les images d'un split du dataset Cityscapes.
+
+    Args:
+        split: 'test' ou 'val'
+
+    Returns:
+        Liste de chemins d'images (triée)
+    """
+    import os
+    from glob import glob
+
+    # Chemin du dataset officiel
+    dataset_path = "/home/ser/Bureau/Projet_image_new/P8_Cityscapes_leftImg8bit_trainvaltest/leftImg8bit"
+    split_path = os.path.join(dataset_path, split)
+
+    if not os.path.exists(split_path):
+        return []
+
+    # Trouver toutes les images leftImg8bit.png
+    pattern = f"{split_path}/**/*_leftImg8bit.png"
+    images = glob(pattern, recursive=True)
+
+    return sorted(images)
+
+
+def load_image_from_path(image_path):
+    """
+    Charge une image depuis un chemin.
+
+    Args:
+        image_path: Chemin vers l'image
+
+    Returns:
+        PIL.Image
+    """
+    return Image.open(image_path)
+
+
 def plot_class_distribution(distribution):
     """
     Génère un graphique de distribution des classes.
@@ -361,12 +457,26 @@ def plot_class_distribution(distribution):
 # ============================================================================
 
 def main():
+    # Initialiser le dark mode dans session_state
+    if 'dark_mode' not in st.session_state:
+        st.session_state.dark_mode = True  # Dark mode par défaut
+
+    # Appliquer le CSS
+    st.markdown(get_custom_css(st.session_state.dark_mode), unsafe_allow_html=True)
+
     # En-tête
     st.markdown('<div class="main-header">🚗 Cityscapes Semantic Segmentation</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Future Vision Transport - Système de Vision pour Véhicules Autonomes</div>', unsafe_allow_html=True)
 
     # Sidebar
     with st.sidebar:
+        # Dark Mode Toggle
+        dark_mode = st.toggle("🌙 Mode Sombre", value=st.session_state.dark_mode)
+        if dark_mode != st.session_state.dark_mode:
+            st.session_state.dark_mode = dark_mode
+            st.rerun()
+
+        st.markdown("---")
         st.image("https://via.placeholder.com/300x100/1f77b4/ffffff?text=Future+Vision+Transport", use_container_width=True)
 
         st.markdown("---")
@@ -425,270 +535,424 @@ def main():
                     unsafe_allow_html=True
                 )
 
-    # Contenu principal
-    st.markdown("## 📤 Upload d'Image")
-    st.markdown("Uploadez une image pour obtenir sa segmentation sémantique.")
+    # Contenu principal - Tabs pour différentes sources d'images
+    tab1, tab2 = st.tabs(["📂 Explorer le Dataset", "📤 Upload Manuel"])
 
-    # Zone d'upload
-    uploaded_file = st.file_uploader(
-        "Choisissez une image (PNG, JPG)",
-        type=['png', 'jpg', 'jpeg'],
-        help="Sélectionnez une image de scène urbaine"
-    )
+    with tab1:
+        st.markdown("## 📂 Parcourir les Images du Dataset")
+        st.markdown("Explorez les images de test ou de validation avec détection automatique du ground truth.")
 
-    if uploaded_file is not None:
-        # Afficher l'image originale
-        original_image = Image.open(uploaded_file)
+        # Initialiser session_state pour le carousel
+        if 'dataset_split' not in st.session_state:
+            st.session_state.dataset_split = 'test'
+        if 'image_index' not in st.session_state:
+            st.session_state.image_index = 0
 
-        st.markdown("---")
-        st.markdown("## 🖼️ Image Originale")
+        col1, col2 = st.columns([1, 3])
 
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image(original_image, caption=f"{uploaded_file.name} ({original_image.size[0]}×{original_image.size[1]})", use_container_width=True)
-
-        # Chercher automatiquement le ground truth
-        st.markdown("---")
-        st.markdown("### 🎯 Ground Truth (pour calcul IoU)")
-
-        auto_gt = find_ground_truth(uploaded_file.name)
-
-        if auto_gt is not None:
-            st.success(f"✅ Ground truth trouvé automatiquement pour {uploaded_file.name}")
-            gt_image = auto_gt
-            gt_file = "auto"
-        else:
-            st.info("💡 Ground truth non trouvé automatiquement. Vous pouvez l'uploader manuellement ci-dessous.")
-            gt_file = st.file_uploader(
-                "Upload manuel du Ground Truth (PNG)",
-                type=['png'],
-                help="Masque de segmentation réel (avec IDs de classes 0-7)",
-                key="ground_truth"
+        with col1:
+            # Sélection du split
+            split = st.selectbox(
+                "Dataset",
+                options=['test', 'val'],
+                index=0 if st.session_state.dataset_split == 'test' else 1,
+                key='split_selector'
             )
-            if gt_file is not None:
-                gt_image = Image.open(gt_file).convert('L')
+
+            # Si le split change, réinitialiser l'index
+            if split != st.session_state.dataset_split:
+                st.session_state.dataset_split = split
+                st.session_state.image_index = 0
+
+            # Charger les images du dataset
+            dataset_images = get_dataset_images(st.session_state.dataset_split)
+
+            if len(dataset_images) == 0:
+                st.warning(f"⚠️ Aucune image trouvée dans le split '{st.session_state.dataset_split}'")
+                st.info("Cette fonctionnalité nécessite le dataset Cityscapes en local.")
             else:
-                gt_image = None
+                st.success(f"✓ {len(dataset_images)} images disponibles")
 
-        # Options de prédiction
-        st.markdown("---")
-        st.markdown("## ⚙️ Options de Prédiction")
+                # Navigation
+                st.markdown(f"**Image {st.session_state.image_index + 1}/{len(dataset_images)}**")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            show_overlay = st.checkbox("Afficher l'overlay", value=True, help="Superpose la segmentation sur l'image originale")
+                col_prev, col_next = st.columns(2)
+                with col_prev:
+                    if st.button("⬅️ Précédent", disabled=(st.session_state.image_index == 0)):
+                        st.session_state.image_index -= 1
+                        st.rerun()
+
+                with col_next:
+                    if st.button("Suivant ➡️", disabled=(st.session_state.image_index >= len(dataset_images) - 1)):
+                        st.session_state.image_index += 1
+                        st.rerun()
+
+                # Sélection directe
+                selected_index = st.number_input(
+                    "Ou sélectionner l'image #",
+                    min_value=1,
+                    max_value=len(dataset_images),
+                    value=st.session_state.image_index + 1,
+                    step=1
+                )
+                if selected_index - 1 != st.session_state.image_index:
+                    st.session_state.image_index = selected_index - 1
+                    st.rerun()
+
         with col2:
-            show_distribution = st.checkbox("Afficher la distribution des classes", value=True)
+            if len(dataset_images) > 0:
+                # Charger l'image actuelle
+                current_image_path = dataset_images[st.session_state.image_index]
+                current_image = load_image_from_path(current_image_path)
+                image_filename = os.path.basename(current_image_path)
 
-        # Bouton de prédiction
-        if st.button("🚀 Lancer la Segmentation", type="primary", use_container_width=True):
+                st.markdown(f"### {image_filename}")
+                st.image(current_image, caption=f"{current_image.size[0]}×{current_image.size[1]}", use_container_width=True)
 
-            # Réinitialiser le pointeur du fichier
-            uploaded_file.seek(0)
+                # Chercher automatiquement le ground truth
+                auto_gt = find_ground_truth(image_filename)
 
-            # Appel API
-            success, result = predict_segmentation(uploaded_file, return_colored=True)
+                if auto_gt is not None:
+                    st.success(f"✅ Ground truth trouvé automatiquement")
 
-            if success:
-                st.markdown("---")
-                st.markdown("## 🎯 Résultats de la Segmentation")
+                    # Afficher le GT
+                    with st.expander("👁️ Voir le Ground Truth"):
+                        st.image(auto_gt, caption="Ground Truth", use_container_width=True)
 
-                # Afficher les métriques
-                col1, col2, col3 = st.columns(3)
+                    # Bouton pour segmenter
+                    if st.button("🚀 Segmenter cette image", type="primary", use_container_width=True, key=f"segment_{st.session_state.image_index}"):
+                        # Convertir l'image PIL en bytes pour l'API
+                        import io
+                        img_byte_arr = io.BytesIO()
+                        current_image.save(img_byte_arr, format='PNG')
+                        img_byte_arr.seek(0)
 
-                with col1:
-                    st.metric("État", "✅ Succès")
-                with col2:
-                    mask_shape = result["mask_shape"]
-                    st.metric("Résolution Masque", f"{mask_shape[1]}×{mask_shape[0]}")
-                with col3:
-                    num_classes_present = sum(1 for v in result["class_distribution"].values() if v > 0)
-                    st.metric("Classes Détectées", num_classes_present)
+                        # Créer un objet fichier simulé
+                        from io import BytesIO
+                        class FakeFile:
+                            def __init__(self, data, name):
+                                self.data = data
+                                self.name = name
+                            def getvalue(self):
+                                return self.data.getvalue()
+                            def seek(self, pos):
+                                return self.data.seek(pos)
 
-                # Décoder le masque base64
-                mask_base64 = result["colored_mask_base64"]
-                mask_bytes = base64.b64decode(mask_base64)
-                mask_image = Image.open(io.BytesIO(mask_bytes))
+                        fake_file = FakeFile(img_byte_arr, image_filename)
 
-                # Afficher les images
-                st.markdown("### 📊 Visualisations")
+                        # Appel API
+                        success, result = predict_segmentation(fake_file, return_colored=True)
 
-                if show_overlay:
-                    # Créer overlay
-                    original_array = np.array(original_image.resize(mask_image.size))
-                    mask_array = np.array(mask_image)
-                    overlay_array = (0.6 * original_array + 0.4 * mask_array).astype(np.uint8)
-                    overlay_image = Image.fromarray(overlay_array)
+                        if success:
+                            st.markdown("---")
+                            st.markdown("### 🎯 Résultats de la Segmentation")
 
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.image(original_image, caption="Image Originale", use_container_width=True)
-                    with col2:
-                        st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
-                    with col3:
-                        st.image(overlay_image, caption="Overlay", use_container_width=True)
+                            # Calculer les métriques IoU
+                            pred_mask_array = np.array(result['prediction_mask'])
+                            gt_mask_array = np.array(auto_gt)
+
+                            metrics = calculate_iou_metrics(pred_mask_array, gt_mask_array)
+
+                            # Afficher métriques
+                            col_m1, col_m2, col_m3 = st.columns(3)
+                            with col_m1:
+                                st.metric("mIoU", f"{metrics['miou']:.2f}%")
+                            with col_m2:
+                                pixel_acc = (pred_mask_array == gt_mask_array).sum() / pred_mask_array.size * 100
+                                st.metric("Pixel Accuracy", f"{pixel_acc:.2f}%")
+                            with col_m3:
+                                st.metric("Classes valides", f"{metrics['num_valid_classes']}/8")
+
+                            # Afficher les images
+                            col_r1, col_r2, col_r3 = st.columns(3)
+                            with col_r1:
+                                st.markdown("**Image Originale**")
+                                st.image(current_image, use_container_width=True)
+                            with col_r2:
+                                st.markdown("**Masque Prédit**")
+                                st.image(result['prediction_colored'], use_container_width=True)
+                            with col_r3:
+                                st.markdown("**Ground Truth**")
+                                st.image(auto_gt, use_container_width=True)
+
+                            # IoU par classe
+                            st.markdown("### 📊 IoU par Classe")
+                            iou_data = []
+                            for class_id, iou_val in metrics['iou_per_class'].items():
+                                class_name = CLASS_NAMES[class_id]
+                                iou_data.append({"Classe": class_name, "IoU (%)": f"{iou_val:.2f}"})
+
+                            st.table(iou_data)
+
+                        else:
+                            st.error(f"❌ Erreur lors de la segmentation : {result}")
                 else:
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.image(original_image, caption="Image Originale", use_container_width=True)
-                    with col2:
-                        st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
+                    st.info("💡 Ground truth non trouvé pour cette image")
 
-                # Calcul IoU si ground truth fourni
-                if gt_image is not None:
-                    st.markdown("---")
-                    st.markdown("### 🎯 Métriques IoU (avec Ground Truth)")
+    with tab2:
+        st.markdown("## 📤 Upload d'Image")
+        st.markdown("Uploadez une image pour obtenir sa segmentation sémantique.")
 
-                    # Convertir en array
-                    gt_array = np.array(gt_image)
+        # Zone d'upload
+        uploaded_file = st.file_uploader(
+            "Choisissez une image (PNG, JPG)",
+            type=['png', 'jpg', 'jpeg'],
+            help="Sélectionnez une image de scène urbaine"
+        )
 
-                    # Obtenir le masque prédit (IDs de classes, pas colorisé)
-                    # On doit reconvertir le masque colorisé en IDs de classes
-                    mask_array = np.array(mask_image)
+        if uploaded_file is not None:
+            # Afficher l'image originale
+            original_image = Image.open(uploaded_file)
 
-                    # Convertir RGB vers ID de classe
-                    pred_mask = np.zeros(mask_array.shape[:2], dtype=np.uint8)
-                    COLOR_PALETTE_NP = np.array([[128, 64, 128], [244, 35, 232], [70, 70, 70],
-                                                   [102, 102, 156], [190, 153, 153], [153, 153, 153],
-                                                   [250, 170, 30], [220, 220, 0]])
+            st.markdown("---")
+            st.markdown("## 🖼️ Image Originale")
 
-                    for class_id in range(8):
-                        color = COLOR_PALETTE_NP[class_id]
-                        mask_match = np.all(mask_array == color, axis=-1)
-                        pred_mask[mask_match] = class_id
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.image(original_image, caption=f"{uploaded_file.name} ({original_image.size[0]}×{original_image.size[1]})", use_container_width=True)
 
-                    # Calculer IoU
-                    iou_metrics = calculate_iou_metrics(pred_mask, gt_array, num_classes=8)
+            # Chercher automatiquement le ground truth
+            st.markdown("---")
+            st.markdown("### 🎯 Ground Truth (pour calcul IoU)")
 
-                    # Afficher mIoU
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("📊 mIoU", f"{iou_metrics['miou']:.2f}%")
-                    with col2:
-                        st.metric("✅ Classes Valides", iou_metrics['num_valid_classes'])
-                    with col3:
-                        st.metric("📏 Pixel Accuracy", f"{((pred_mask == gt_array).sum() / gt_array.size * 100):.2f}%")
+            auto_gt = find_ground_truth(uploaded_file.name)
 
-                    # Afficher IoU par classe
-                    with st.expander("📋 IoU par Classe"):
-                        CLASS_NAMES = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic light', 'traffic sign']
-
-                        for class_id, iou_val in iou_metrics['iou_per_class'].items():
-                            if iou_val > 0:
-                                st.write(f"**{CLASS_NAMES[class_id]}** : {iou_val:.2f}%")
-
-                # Distribution des classes
-                if show_distribution:
-                    st.markdown("### 📈 Distribution des Classes")
-
-                    if gt_image is None:
-                        st.info("""
-                        **ℹ️ Note** : Cette section montre la **distribution des classes prédites** dans l'image.
-
-                        💡 **Pour calculer l'IoU et le mIoU** :
-                        - Les images du dataset Cityscapes sont automatiquement détectées
-                        - Sinon, uploadez manuellement le Ground Truth ci-dessus
-
-                        Les métriques globales du modèle (79.21% mIoU) sont affichées dans la barre latérale.
-                        """)
-
-                    distribution = result["class_distribution"]
-
-                    # Graphique
-                    fig = plot_class_distribution(distribution)
-                    st.pyplot(fig)
-
-                    # Tableau détaillé
-                    with st.expander("📋 Détails de la Distribution"):
-                        col1, col2 = st.columns(2)
-
-                        for i, (class_name, percentage) in enumerate(distribution.items()):
-                            target_col = col1 if i < 4 else col2
-                            with target_col:
-                                color_rgb = COLOR_PALETTE[i]
-                                color_hex = "#{:02x}{:02x}{:02x}".format(*color_rgb)
-                                st.markdown(
-                                    f'<div class="metric-card">'
-                                    f'<div style="display: flex; align-items: center; justify-content: space-between;">'
-                                    f'<div style="display: flex; align-items: center;">'
-                                    f'<div style="width: 25px; height: 25px; background-color: {color_hex}; '
-                                    f'border: 2px solid #000; margin-right: 10px; border-radius: 3px;"></div>'
-                                    f'<b>{class_name.capitalize()}</b>'
-                                    f'</div>'
-                                    f'<span style="font-size: 1.2rem; font-weight: bold; color: #1f77b4;">'
-                                    f'{percentage:.2f}%</span>'
-                                    f'</div>'
-                                    f'</div>',
-                                    unsafe_allow_html=True
-                                )
-
-                # Boutons de téléchargement
-                st.markdown("### 💾 Téléchargement")
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    # Télécharger le masque
-                    mask_buffer = io.BytesIO()
-                    mask_image.save(mask_buffer, format='PNG')
-                    mask_buffer.seek(0)
-
-                    st.download_button(
-                        label="📥 Télécharger le Masque",
-                        data=mask_buffer,
-                        file_name=f"mask_{uploaded_file.name}",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-
-                with col2:
-                    # Télécharger le JSON des résultats
-                    json_str = json.dumps(result, indent=2)
-
-                    st.download_button(
-                        label="📥 Télécharger les Résultats (JSON)",
-                        data=json_str,
-                        file_name=f"results_{uploaded_file.name}.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
-
+            if auto_gt is not None:
+                st.success(f"✅ Ground truth trouvé automatiquement pour {uploaded_file.name}")
+                gt_image = auto_gt
+                gt_file = "auto"
             else:
-                st.error(f"❌ Erreur lors de la segmentation : {result}")
+                st.info("💡 Ground truth non trouvé automatiquement. Vous pouvez l'uploader manuellement ci-dessous.")
+                gt_file = st.file_uploader(
+                    "Upload manuel du Ground Truth (PNG)",
+                    type=['png'],
+                    help="Masque de segmentation réel (avec IDs de classes 0-7)",
+                    key="ground_truth"
+                )
+                if gt_file is not None:
+                    gt_image = Image.open(gt_file).convert('L')
+                else:
+                    gt_image = None
 
-    else:
-        # Message d'accueil
-        st.info("👆 Uploadez une image pour commencer la segmentation")
+            # Options de prédiction
+            st.markdown("---")
+            st.markdown("## ⚙️ Options de Prédiction")
 
-        # Exemples
-        st.markdown("---")
-        st.markdown("## 📷 Images d'Exemple")
-        st.markdown("Vous pouvez tester avec des images du dataset Cityscapes ou vos propres photos de scènes urbaines.")
+            col1, col2 = st.columns(2)
+            with col1:
+                show_overlay = st.checkbox("Afficher l'overlay", value=True, help="Superpose la segmentation sur l'image originale")
+            with col2:
+                show_distribution = st.checkbox("Afficher la distribution des classes", value=True)
 
-        col1, col2, col3 = st.columns(3)
+            # Bouton de prédiction
+            if st.button("🚀 Lancer la Segmentation", type="primary", use_container_width=True):
 
-        with col1:
-            st.markdown("**Scène Urbaine**")
-            st.markdown("- Routes")
-            st.markdown("- Bâtiments")
-            st.markdown("- Véhicules")
+                # Réinitialiser le pointeur du fichier
+                uploaded_file.seek(0)
 
-        with col2:
-            st.markdown("**Éléments de Sécurité**")
-            st.markdown("- Panneaux")
-            st.markdown("- Feux tricolores")
-            st.markdown("- Marquages au sol")
+                # Appel API
+                success, result = predict_segmentation(uploaded_file, return_colored=True)
 
-        with col3:
-            st.markdown("**Infrastructure**")
-            st.markdown("- Trottoirs")
-            st.markdown("- Poteaux")
-            st.markdown("- Clôtures")
+                if success:
+                    st.markdown("---")
+                    st.markdown("## 🎯 Résultats de la Segmentation")
+
+                    # Afficher les métriques
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.metric("État", "✅ Succès")
+                    with col2:
+                        mask_shape = result["mask_shape"]
+                        st.metric("Résolution Masque", f"{mask_shape[1]}×{mask_shape[0]}")
+                    with col3:
+                        num_classes_present = sum(1 for v in result["class_distribution"].values() if v > 0)
+                        st.metric("Classes Détectées", num_classes_present)
+
+                    # Décoder le masque base64
+                    mask_base64 = result["colored_mask_base64"]
+                    mask_bytes = base64.b64decode(mask_base64)
+                    mask_image = Image.open(io.BytesIO(mask_bytes))
+
+                    # Afficher les images
+                    st.markdown("### 📊 Visualisations")
+
+                    if show_overlay:
+                        # Créer overlay
+                        original_array = np.array(original_image.resize(mask_image.size))
+                        mask_array = np.array(mask_image)
+                        overlay_array = (0.6 * original_array + 0.4 * mask_array).astype(np.uint8)
+                        overlay_image = Image.fromarray(overlay_array)
+
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.image(original_image, caption="Image Originale", use_container_width=True)
+                        with col2:
+                            st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
+                        with col3:
+                            st.image(overlay_image, caption="Overlay", use_container_width=True)
+                    else:
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(original_image, caption="Image Originale", use_container_width=True)
+                        with col2:
+                            st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
+
+                    # Calcul IoU si ground truth fourni
+                    if gt_image is not None:
+                        st.markdown("---")
+                        st.markdown("### 🎯 Métriques IoU (avec Ground Truth)")
+
+                        # Convertir en array
+                        gt_array = np.array(gt_image)
+
+                        # Obtenir le masque prédit (IDs de classes, pas colorisé)
+                        # On doit reconvertir le masque colorisé en IDs de classes
+                        mask_array = np.array(mask_image)
+
+                        # Convertir RGB vers ID de classe
+                        pred_mask = np.zeros(mask_array.shape[:2], dtype=np.uint8)
+                        COLOR_PALETTE_NP = np.array([[128, 64, 128], [244, 35, 232], [70, 70, 70],
+                                                       [102, 102, 156], [190, 153, 153], [153, 153, 153],
+                                                       [250, 170, 30], [220, 220, 0]])
+
+                        for class_id in range(8):
+                            color = COLOR_PALETTE_NP[class_id]
+                            mask_match = np.all(mask_array == color, axis=-1)
+                            pred_mask[mask_match] = class_id
+
+                        # Calculer IoU
+                        iou_metrics = calculate_iou_metrics(pred_mask, gt_array, num_classes=8)
+
+                        # Afficher mIoU
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("📊 mIoU", f"{iou_metrics['miou']:.2f}%")
+                        with col2:
+                            st.metric("✅ Classes Valides", iou_metrics['num_valid_classes'])
+                        with col3:
+                            st.metric("📏 Pixel Accuracy", f"{((pred_mask == gt_array).sum() / gt_array.size * 100):.2f}%")
+
+                        # Afficher IoU par classe
+                        with st.expander("📋 IoU par Classe"):
+                            CLASS_NAMES = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic light', 'traffic sign']
+
+                            for class_id, iou_val in iou_metrics['iou_per_class'].items():
+                                if iou_val > 0:
+                                    st.write(f"**{CLASS_NAMES[class_id]}** : {iou_val:.2f}%")
+
+                    # Distribution des classes
+                    if show_distribution:
+                        st.markdown("### 📈 Distribution des Classes")
+
+                        if gt_image is None:
+                            st.info("""
+                            **ℹ️ Note** : Cette section montre la **distribution des classes prédites** dans l'image.
+
+                            💡 **Pour calculer l'IoU et le mIoU** :
+                            - Les images du dataset Cityscapes sont automatiquement détectées
+                            - Sinon, uploadez manuellement le Ground Truth ci-dessus
+
+                            Les métriques globales du modèle (79.21% mIoU) sont affichées dans la barre latérale.
+                            """)
+
+                        distribution = result["class_distribution"]
+
+                        # Graphique
+                        fig = plot_class_distribution(distribution)
+                        st.pyplot(fig)
+
+                        # Tableau détaillé
+                        with st.expander("📋 Détails de la Distribution"):
+                            col1, col2 = st.columns(2)
+
+                            for i, (class_name, percentage) in enumerate(distribution.items()):
+                                target_col = col1 if i < 4 else col2
+                                with target_col:
+                                    color_rgb = COLOR_PALETTE[i]
+                                    color_hex = "#{:02x}{:02x}{:02x}".format(*color_rgb)
+                                    st.markdown(
+                                        f'<div class="metric-card">'
+                                        f'<div style="display: flex; align-items: center; justify-content: space-between;">'
+                                        f'<div style="display: flex; align-items: center;">'
+                                        f'<div style="width: 25px; height: 25px; background-color: {color_hex}; '
+                                        f'border: 2px solid #000; margin-right: 10px; border-radius: 3px;"></div>'
+                                        f'<b>{class_name.capitalize()}</b>'
+                                        f'</div>'
+                                        f'<span style="font-size: 1.2rem; font-weight: bold; color: #1f77b4;">'
+                                        f'{percentage:.2f}%</span>'
+                                        f'</div>'
+                                        f'</div>',
+                                        unsafe_allow_html=True
+                                    )
+
+                    # Boutons de téléchargement
+                    st.markdown("### 💾 Téléchargement")
+
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        # Télécharger le masque
+                        mask_buffer = io.BytesIO()
+                        mask_image.save(mask_buffer, format='PNG')
+                        mask_buffer.seek(0)
+
+                        st.download_button(
+                            label="📥 Télécharger le Masque",
+                            data=mask_buffer,
+                            file_name=f"mask_{uploaded_file.name}",
+                            mime="image/png",
+                            use_container_width=True
+                        )
+
+                    with col2:
+                        # Télécharger le JSON des résultats
+                        json_str = json.dumps(result, indent=2)
+
+                        st.download_button(
+                            label="📥 Télécharger les Résultats (JSON)",
+                            data=json_str,
+                            file_name=f"results_{uploaded_file.name}.json",
+                            mime="application/json",
+                            use_container_width=True
+                        )
+
+                else:
+                    st.error(f"❌ Erreur lors de la segmentation : {result}")
+
+        else:
+            # Message d'accueil
+            st.info("👆 Uploadez une image pour commencer la segmentation")
+
+            # Exemples
+            st.markdown("---")
+            st.markdown("## 📷 Images d'Exemple")
+            st.markdown("Vous pouvez tester avec des images du dataset Cityscapes ou vos propres photos de scènes urbaines.")
+
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.markdown("**Scène Urbaine**")
+                st.markdown("- Routes")
+                st.markdown("- Bâtiments")
+                st.markdown("- Véhicules")
+
+            with col2:
+                st.markdown("**Éléments de Sécurité**")
+                st.markdown("- Panneaux")
+                st.markdown("- Feux tricolores")
+                st.markdown("- Marquages au sol")
+
+            with col3:
+                st.markdown("**Infrastructure**")
+                st.markdown("- Trottoirs")
+                st.markdown("- Poteaux")
+                st.markdown("- Clôtures")
 
 
-# ============================================================================
-# Footer
-# ============================================================================
+    # ============================================================================
+    # Footer
+    # ============================================================================
 
 def add_footer():
     st.markdown("---")
