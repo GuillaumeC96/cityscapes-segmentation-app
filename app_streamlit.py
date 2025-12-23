@@ -196,9 +196,10 @@ def find_ground_truth(image_name):
     """
     Cherche automatiquement le ground truth correspondant à une image.
 
-    Supporte deux formats :
+    Supporte plusieurs formats :
     1. Cityscapes: [city]_[seq]_[frame]_leftImg8bit.png → [base]_gtFine_labelIds.png
     2. Augmented: [name]_image.png → [name]_label.png
+    3. Augmented Cityscapes: [city]_[seq]_[frame]_aug.png → [base]_gtFine_labelIds.png
 
     Args:
         image_name: Nom de l'image
@@ -222,7 +223,12 @@ def find_ground_truth(image_name):
         base_name = image_name.replace("_image.png", "").replace("_image.jpg", "").replace("_image.jpeg", "")
         gt_filename = f"{base_name}_label.png"
 
-    # Format 3: Fichiers simples (test.png → test_label.png ou test_gt.png)
+    # Format 3: Images Cityscapes augmentées (cologne_000025_000019_aug.png → cologne_000025_000019_gtFine_labelIds.png)
+    elif "_aug." in image_name or image_name.endswith("_aug.png"):
+        base_name = image_name.replace("_aug.png", "").replace("_aug.jpg", "").replace("_aug.jpeg", "")
+        gt_filename = f"{base_name}_gtFine_labelIds.png"
+
+    # Format 4: Fichiers simples (test.png → test_label.png ou test_gt.png)
     else:
         # Essayer plusieurs suffixes possibles
         base_name = image_name.rsplit('.', 1)[0]  # Enlever l'extension
