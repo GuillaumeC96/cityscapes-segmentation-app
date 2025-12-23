@@ -192,6 +192,56 @@ def get_prediction_image(image_file, overlay=False):
         return None
 
 
+def calculate_iou_metrics(pred_mask, gt_mask, num_classes=8):
+    """
+    Calcule les métriques IoU entre la prédiction et le ground truth.
+
+    Args:
+        pred_mask: Masque prédit (image PIL ou numpy array)
+        gt_mask: Masque ground truth (image PIL ou numpy array)
+        num_classes: Nombre de classes
+
+    Returns:
+        dict: Métriques IoU par classe et mIoU
+    """
+    # Convertir en numpy si nécessaire
+    if isinstance(pred_mask, Image.Image):
+        pred_mask = np.array(pred_mask)
+    if isinstance(gt_mask, Image.Image):
+        gt_mask = np.array(gt_mask)
+
+    # Redimensionner le ground truth si nécessaire
+    if pred_mask.shape != gt_mask.shape:
+        gt_mask = np.array(Image.fromarray(gt_mask).resize(
+            (pred_mask.shape[1], pred_mask.shape[0]), Image.NEAREST
+        ))
+
+    iou_per_class = {}
+    ious = []
+
+    for class_id in range(num_classes):
+        pred_class = (pred_mask == class_id)
+        gt_class = (gt_mask == class_id)
+
+        intersection = np.logical_and(pred_class, gt_class).sum()
+        union = np.logical_or(pred_class, gt_class).sum()
+
+        if union > 0:
+            iou = (intersection / union) * 100
+            iou_per_class[class_id] = iou
+            ious.append(iou)
+        else:
+            iou_per_class[class_id] = 0.0
+
+    miou = np.mean(ious) if ious else 0.0
+
+    return {
+        "iou_per_class": iou_per_class,
+        "miou": miou,
+        "num_valid_classes": len(ious)
+    }
+
+
 def plot_class_distribution(distribution):
     """
     Génère un graphique de distribution des classes.
@@ -301,6 +351,17 @@ def main():
         help="Sélectionnez une image de scène urbaine"
     )
 
+    # Upload optionnel du ground truth
+    st.markdown("### 🎯 Ground Truth (Optionnel)")
+    st.markdown("Uploadez le masque ground truth pour calculer l'IoU et le mIoU")
+
+    gt_file = st.file_uploader(
+        "Ground Truth (PNG)",
+        type=['png'],
+        help="Masque de segmentation réel (avec IDs de classes 0-7)",
+        key="ground_truth"
+    )
+
     if uploaded_file is not None:
         # Afficher l'image originale
         original_image = Image.open(uploaded_file)
@@ -376,18 +437,62 @@ def main():
                     with col2:
                         st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
 
+                # Calcul IoU si ground truth fourni
+                if gt_file is not None:
+                    st.markdown("---")
+                    st.markdown("### 🎯 Métriques IoU (avec Ground Truth)")
+
+                    # Charger le ground truth
+                    gt_image = Image.open(gt_file).convert('L')  # Grayscale
+                    gt_array = np.array(gt_image)
+
+                    # Obtenir le masque prédit (IDs de classes, pas colorisé)
+                    # On doit reconvertir le masque colorisé en IDs de classes
+                    mask_array = np.array(mask_image)
+
+                    # Convertir RGB vers ID de classe
+                    pred_mask = np.zeros(mask_array.shape[:2], dtype=np.uint8)
+                    COLOR_PALETTE_NP = np.array([[128, 64, 128], [244, 35, 232], [70, 70, 70],
+                                                   [102, 102, 156], [190, 153, 153], [153, 153, 153],
+                                                   [250, 170, 30], [220, 220, 0]])
+
+                    for class_id in range(8):
+                        color = COLOR_PALETTE_NP[class_id]
+                        mask_match = np.all(mask_array == color, axis=-1)
+                        pred_mask[mask_match] = class_id
+
+                    # Calculer IoU
+                    iou_metrics = calculate_iou_metrics(pred_mask, gt_array, num_classes=8)
+
+                    # Afficher mIoU
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("📊 mIoU", f"{iou_metrics['miou']:.2f}%")
+                    with col2:
+                        st.metric("✅ Classes Valides", iou_metrics['num_valid_classes'])
+                    with col3:
+                        st.metric("📏 Pixel Accuracy", f"{((pred_mask == gt_array).sum() / gt_array.size * 100):.2f}%")
+
+                    # Afficher IoU par classe
+                    with st.expander("📋 IoU par Classe"):
+                        CLASS_NAMES = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic light', 'traffic sign']
+
+                        for class_id, iou_val in iou_metrics['iou_per_class'].items():
+                            if iou_val > 0:
+                                st.write(f"**{CLASS_NAMES[class_id]}** : {iou_val:.2f}%")
+
                 # Distribution des classes
                 if show_distribution:
                     st.markdown("### 📈 Distribution des Classes")
 
-                    st.info("""
-                    **ℹ️ Note** : Cette section montre la **distribution des classes prédites** dans l'image.
+                    if gt_file is None:
+                        st.info("""
+                        **ℹ️ Note** : Cette section montre la **distribution des classes prédites** dans l'image.
 
-                    Pour calculer l'**IoU** (Intersection over Union) ou le **mIoU**, il faudrait comparer
-                    la prédiction avec le masque ground truth. En production, on dispose rarement du ground truth.
+                        💡 **Pour calculer l'IoU et le mIoU**, uploadez le **Ground Truth** (masque réel) dans la section d'upload ci-dessus.
 
-                    Les métriques globales du modèle (79.21% mIoU) sont affichées dans la barre latérale.
-                    """)
+                        Les métriques globales du modèle (79.21% mIoU) sont affichées dans la barre latérale.
+                        """)
 
                     distribution = result["class_distribution"]
 
