@@ -248,11 +248,8 @@ def main():
         st.markdown("---")
         st.markdown("### 🔧 Paramètres")
 
-        # Configuration de l'API
-        api_url_input = st.text_input("URL de l'API", value=API_URL)
-        if api_url_input != API_URL:
-            global API_URL
-            API_URL = api_url_input
+        # Affichage de l'URL de l'API (lecture seule)
+        st.text(f"URL de l'API : {API_URL}")
 
         # Test de connexion API
         st.markdown("#### État de l'API")
