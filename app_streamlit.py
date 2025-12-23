@@ -137,8 +137,8 @@ def predict_segmentation(image_file, return_colored=True):
         dict: Résultats de la prédiction
     """
     try:
-        # Préparer le fichier
-        files = {"file": image_file.getvalue()}
+        # Préparer le fichier avec le bon format
+        files = {"file": (image_file.name, image_file.getvalue(), image_file.type)}
         params = {"return_colored": return_colored}
 
         # Appel API
@@ -171,7 +171,7 @@ def get_prediction_image(image_file, overlay=False):
         PIL.Image ou None
     """
     try:
-        files = {"file": image_file.getvalue()}
+        files = {"file": (image_file.name, image_file.getvalue(), image_file.type)}
         params = {"overlay": overlay}
 
         response = requests.post(
@@ -232,7 +232,7 @@ def main():
 
     # Sidebar
     with st.sidebar:
-        st.image("https://via.placeholder.com/300x100/1f77b4/ffffff?text=Future+Vision+Transport", use_column_width=True)
+        st.image("https://via.placeholder.com/300x100/1f77b4/ffffff?text=Future+Vision+Transport", use_container_width=True)
 
         st.markdown("---")
         st.markdown("### ℹ️ À Propos")
@@ -302,7 +302,7 @@ def main():
 
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.image(original_image, caption=f"{uploaded_file.name} ({original_image.size[0]}×{original_image.size[1]})", use_column_width=True)
+            st.image(original_image, caption=f"{uploaded_file.name} ({original_image.size[0]}×{original_image.size[1]})", use_container_width=True)
 
         # Options de prédiction
         st.markdown("---")
@@ -356,17 +356,17 @@ def main():
 
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.image(original_image, caption="Image Originale", use_column_width=True)
+                        st.image(original_image, caption="Image Originale", use_container_width=True)
                     with col2:
-                        st.image(mask_image, caption="Masque de Segmentation", use_column_width=True)
+                        st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
                     with col3:
-                        st.image(overlay_image, caption="Overlay", use_column_width=True)
+                        st.image(overlay_image, caption="Overlay", use_container_width=True)
                 else:
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.image(original_image, caption="Image Originale", use_column_width=True)
+                        st.image(original_image, caption="Image Originale", use_container_width=True)
                     with col2:
-                        st.image(mask_image, caption="Masque de Segmentation", use_column_width=True)
+                        st.image(mask_image, caption="Masque de Segmentation", use_container_width=True)
 
                 # Distribution des classes
                 if show_distribution:
