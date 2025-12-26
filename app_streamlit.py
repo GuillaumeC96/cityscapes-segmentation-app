@@ -15,9 +15,16 @@ import requests
 import base64
 import io
 import json
+import os
+from glob import glob
 from PIL import Image
 import numpy as np
+
+# Configure matplotlib pour mode headless (sans display)
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 from pathlib import Path
 
 # ============================================================================
@@ -27,22 +34,35 @@ from pathlib import Path
 # URL de l'API (à modifier selon votre déploiement)
 API_URL = st.secrets.get("API_URL", "http://localhost:8000")
 
-# Palette de couleurs Cityscapes
+# Palette de couleurs - 8 CATÉGORIES (basée sur config.py du projet)
 COLOR_PALETTE = np.array([
-    [128, 64, 128],   # road
-    [244, 35, 232],   # sidewalk
-    [70, 70, 70],     # building
-    [102, 102, 156],  # wall
-    [190, 153, 153],  # fence
-    [153, 153, 153],  # pole
-    [250, 170, 30],   # traffic light
-    [220, 220, 0],    # traffic sign
+    [0, 0, 0],           # 0: void - noir
+    [128, 64, 128],      # 1: flat - violet
+    [70, 70, 70],        # 2: construction - gris
+    [153, 153, 153],     # 3: object - gris clair
+    [107, 142, 35],      # 4: nature - vert olive
+    [70, 130, 180],      # 5: sky - bleu ciel
+    [220, 20, 60],       # 6: human - rouge
+    [0, 0, 142],         # 7: vehicle - bleu foncé
 ], dtype=np.uint8)
 
+# Noms des 8 CATÉGORIES (utilisées par le modèle)
 CLASS_NAMES = [
-    'road', 'sidewalk', 'building', 'wall', 'fence', 'pole',
-    'traffic light', 'traffic sign'
+    'void', 'flat', 'construction', 'object',
+    'nature', 'sky', 'human', 'vehicle'
 ]
+
+# Mapping des IDs Cityscapes originaux (0-33) vers les 8 catégories
+ID_TO_CATEGORY = {
+    0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0,  # void
+    7: 1, 8: 1, 9: 1, 10: 1,                    # flat
+    11: 2, 12: 2, 13: 2, 14: 2, 15: 2, 16: 2,  # construction
+    17: 3, 18: 3, 19: 3, 20: 3,                 # object
+    21: 4, 22: 4,                               # nature
+    23: 5,                                       # sky
+    24: 6, 25: 6,                               # human
+    26: 7, 27: 7, 28: 7, 29: 7, 30: 7, 31: 7, 32: 7, 33: 7,  # vehicle
+}
 
 # ============================================================================
 # Configuration de la Page
@@ -60,11 +80,29 @@ def get_custom_css(dark_mode=False):
     if dark_mode:
         return """
 <style>
-    /* Dark Mode */
+    /* Dark Mode - GitHub Style */
     .stApp {
-        background-color: #0e1117;
-        color: #fafafa;
+        background-color: #0d1117;
+        color: #c9d1d9;
     }
+
+    /* Streamlit Header (bandeau en haut) */
+    header[data-testid="stHeader"] {
+        background-color: #161b22 !important;
+    }
+
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #161b22;
+    }
+    [data-testid="stSidebar"] .stMarkdown {
+        color: #c9d1d9;
+    }
+    [data-testid="stSidebar"] label {
+        color: #c9d1d9 !important;
+    }
+
+    /* Headers */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -74,10 +112,27 @@ def get_custom_css(dark_mode=False):
     }
     .sub-header {
         font-size: 1.2rem;
-        color: #8b949e;
+        color: #c9d1d9;
         text-align: center;
         margin-bottom: 2rem;
     }
+
+    /* Expanders (À propos) */
+    [data-testid="stExpander"] {
+        background-color: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+    }
+    [data-testid="stExpander"] summary {
+        color: #c9d1d9 !important;
+    }
+    [data-testid="stExpander"] p,
+    [data-testid="stExpander"] li,
+    [data-testid="stExpander"] div {
+        color: #c9d1d9 !important;
+    }
+
+    /* Metric Cards */
     .metric-card {
         background-color: #161b22;
         padding: 1rem;
@@ -85,6 +140,8 @@ def get_custom_css(dark_mode=False):
         margin: 0.5rem 0;
         border: 1px solid #30363d;
     }
+
+    /* Success/Warning Boxes */
     .success-box {
         background-color: #0d1117;
         border-left: 5px solid #238636;
@@ -101,12 +158,60 @@ def get_custom_css(dark_mode=False):
         border-radius: 0.25rem;
         color: #e3b341;
     }
+
+    /* Buttons */
     .stButton>button {
         background-color: #238636;
-        color: white;
+        color: white !important;
+        border: 1px solid #2ea043;
     }
     .stButton>button:hover {
         background-color: #2ea043;
+    }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        background-color: #161b22;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #c9d1d9;
+    }
+
+    /* Text elements */
+    p, span, label, div {
+        color: #c9d1d9;
+    }
+
+    /* Select boxes - FIXED CONTRAST */
+    .stSelectbox label {
+        color: #c9d1d9 !important;
+    }
+    .stSelectbox > div > div {
+        background-color: #161b22 !important;
+    }
+    .stSelectbox input {
+        color: #ffffff !important;
+    }
+    .stSelectbox [data-baseweb="select"] > div {
+        background-color: #161b22 !important;
+        color: #ffffff !important;
+    }
+
+    /* Number input - FIXED CONTRAST */
+    .stNumberInput label {
+        color: #c9d1d9 !important;
+    }
+    .stNumberInput input {
+        background-color: #161b22 !important;
+        color: #ffffff !important;
+        border: 1px solid #30363d !important;
+    }
+
+    /* All inputs */
+    input {
+        background-color: #161b22 !important;
+        color: #ffffff !important;
+        border: 1px solid #30363d !important;
     }
 </style>
 """
@@ -181,13 +286,44 @@ def get_api_classes():
         return None
 
 
-def predict_segmentation(image_file, return_colored=True):
+def decode_base64_to_array(base64_str):
+    """
+    Décode une chaîne base64 en array numpy.
+
+    Args:
+        base64_str: Chaîne base64
+
+    Returns:
+        np.ndarray: Array numpy
+    """
+    import json
+    decoded = base64.b64decode(base64_str)
+    array_list = json.loads(decoded.decode('utf-8'))
+    return np.array(array_list)
+
+
+def decode_base64_to_image(base64_str):
+    """
+    Décode une chaîne base64 en image PIL.
+
+    Args:
+        base64_str: Chaîne base64
+
+    Returns:
+        PIL.Image: Image PIL
+    """
+    decoded = base64.b64decode(base64_str)
+    return Image.open(io.BytesIO(decoded))
+
+
+def predict_segmentation(image_file, return_colored=True, return_raw_mask=False):
     """
     Envoie une image à l'API pour prédiction.
 
     Args:
         image_file: Fichier image uploadé
         return_colored: Si True, retourne le masque colorisé
+        return_raw_mask: Si True, retourne le masque brut
 
     Returns:
         dict: Résultats de la prédiction
@@ -195,7 +331,19 @@ def predict_segmentation(image_file, return_colored=True):
     try:
         # Préparer le fichier avec le bon format
         files = {"file": (image_file.name, image_file.getvalue(), image_file.type)}
-        params = {"return_colored": return_colored}
+        params = {
+            "return_colored": return_colored,
+            "return_raw_mask": return_raw_mask
+        }
+
+        # DEBUG: Afficher les informations de la requête
+        st.info(f"🔍 DEBUG API - Envoi de la requête:\n"
+                f"  URL: {API_URL}/predict\n"
+                f"  Fichier: {image_file.name}\n"
+                f"  Type: {image_file.type}\n"
+                f"  Taille: {len(image_file.getvalue())} bytes\n"
+                f"  return_colored: {return_colored}\n"
+                f"  return_raw_mask: {return_raw_mask}")
 
         # Appel API
         with st.spinner("Segmentation en cours..."):
@@ -206,13 +354,38 @@ def predict_segmentation(image_file, return_colored=True):
                 timeout=60
             )
 
+        # DEBUG: Afficher les informations de la réponse
+        st.info(f"🔍 DEBUG API - Réponse reçue:\n"
+                f"  Status Code: {response.status_code}\n"
+                f"  Headers: {dict(response.headers)}\n"
+                f"  Response Length: {len(response.content)} bytes")
+
         if response.status_code == 200:
-            return True, response.json()
+            try:
+                json_data = response.json()
+                st.success(f"✅ Réponse JSON valide - Clés: {list(json_data.keys())}")
+                return True, json_data
+            except Exception as json_err:
+                st.error(f"❌ Erreur parsing JSON: {str(json_err)}\n"
+                         f"Content: {response.text[:500]}")
+                return False, f"Erreur parsing JSON: {str(json_err)}"
         else:
-            return False, f"Erreur API : {response.status_code} - {response.text}"
+            error_msg = f"Erreur API : {response.status_code} - {response.text}"
+            st.error(f"❌ {error_msg}")
+            # Essayer de parser le texte d'erreur comme JSON pour plus de détails
+            try:
+                error_detail = response.json()
+                st.code(f"Détails de l'erreur:\n{error_detail}", language="json")
+            except:
+                st.code(f"Réponse brute:\n{response.text}", language="text")
+            return False, error_msg
 
     except Exception as e:
-        return False, f"Erreur : {str(e)}"
+        error_msg = f"Erreur : {str(e)}"
+        st.error(f"❌ Exception: {error_msg}")
+        import traceback
+        st.code(traceback.format_exc(), language="text")
+        return False, error_msg
 
 
 def get_prediction_image(image_file, overlay=False):
@@ -248,6 +421,44 @@ def get_prediction_image(image_file, overlay=False):
         return None
 
 
+def colorize_mask(mask, is_cityscapes_gt=False):
+    """
+    Colorise un masque de segmentation avec la palette de 8 catégories.
+
+    Args:
+        mask: PIL Image ou numpy array avec des labels
+        is_cityscapes_gt: Si True, applique le mapping IDs Cityscapes (0-33) → catégories (0-7)
+
+    Returns:
+        PIL Image colorisée
+    """
+    if isinstance(mask, Image.Image):
+        mask_array = np.array(mask)
+    else:
+        mask_array = mask.copy()
+
+    # Détection automatique : si les valeurs max > 7, c'est un GT Cityscapes avec IDs originaux
+    if not is_cityscapes_gt and mask_array.max() > 7:
+        is_cityscapes_gt = True
+
+    # Si c'est un GT Cityscapes, mapper les IDs originaux (0-33) vers catégories (0-7)
+    if is_cityscapes_gt:
+        mapped_mask = np.zeros(mask_array.shape, dtype=np.uint8)
+        for original_id, category_id in ID_TO_CATEGORY.items():
+            mapped_mask[mask_array == original_id] = category_id
+        mask_array = mapped_mask
+
+    # Créer une image RGB vide
+    h, w = mask_array.shape[:2]
+    colored = np.zeros((h, w, 3), dtype=np.uint8)
+
+    # Appliquer la palette de couleurs pour les 8 catégories
+    for category_id in range(len(COLOR_PALETTE)):
+        colored[mask_array == category_id] = COLOR_PALETTE[category_id]
+
+    return Image.fromarray(colored)
+
+
 def find_ground_truth(image_name):
     """
     Cherche automatiquement le ground truth correspondant à une image.
@@ -268,8 +479,9 @@ def find_ground_truth(image_name):
 
     # Chemins de recherche prioritaires
     search_paths = [
-        "/home/ser/Bureau/Projet_image_new/P8_Cityscapes_gtFine_trainvaltest/gtFine",  # Dataset officiel
-        "/home/ser/Bureau/Projet_image_new/data",  # Dataset augmenté/personnalisé
+        "sample_data/labels",  # Sample data pour Streamlit Cloud
+        "/home/ser/Bureau/Projet_image_new/P8_Cityscapes_gtFine_trainvaltest/gtFine",  # Dataset officiel local
+        "/home/ser/Bureau/Projet_image_new/data",  # Dataset augmenté/personnalisé local
     ]
     gt_filename = None
 
@@ -325,7 +537,14 @@ def find_ground_truth(image_name):
 
             if matches:
                 try:
-                    return Image.open(matches[0]).convert('L')
+                    # Charger et convertir en niveaux de gris pour les labels
+                    img = Image.open(matches[0])
+                    # Si l'image a une palette, la convertir d'abord
+                    if img.mode == 'P':
+                        img = img.convert('L')
+                    elif img.mode != 'L':
+                        img = img.convert('L')
+                    return img
                 except Exception as e:
                     print(f"Erreur lors du chargement du GT: {e}")
                     continue
@@ -356,6 +575,14 @@ def calculate_iou_metrics(pred_mask, gt_mask, num_classes=8):
         gt_mask = np.array(Image.fromarray(gt_mask).resize(
             (pred_mask.shape[1], pred_mask.shape[0]), Image.NEAREST
         ))
+
+    # IMPORTANT: Convertir le GT des IDs Cityscapes (0-33) vers catégories (0-7)
+    # Si le GT contient des valeurs > 7, c'est qu'il utilise les IDs originaux
+    if gt_mask.max() > 7:
+        mapped_gt = np.zeros(gt_mask.shape, dtype=np.uint8)
+        for original_id, category_id in ID_TO_CATEGORY.items():
+            mapped_gt[gt_mask == original_id] = category_id
+        gt_mask = mapped_gt
 
     iou_per_class = {}
     ious = []
@@ -396,17 +623,23 @@ def get_dataset_images(split='test'):
     import os
     from glob import glob
 
-    # Chemin du dataset officiel
-    dataset_path = "/home/ser/Bureau/Projet_image_new/P8_Cityscapes_leftImg8bit_trainvaltest/leftImg8bit"
-    split_path = os.path.join(dataset_path, split)
+    # Chemin du dataset - utilise sample_data pour Streamlit Cloud
+    # ou chemin local si disponible
+    local_dataset = "/home/ser/Bureau/Projet_image_new/P8_Cityscapes_leftImg8bit_trainvaltest/leftImg8bit"
+    sample_dataset = "sample_data/images"
 
-    if not os.path.exists(split_path):
+    # Préférer le dataset local si disponible, sinon utiliser sample_data
+    if os.path.exists(local_dataset):
+        dataset_path = local_dataset
+        split_path = os.path.join(dataset_path, split)
+        pattern = f"{split_path}/**/*_leftImg8bit.png"
+    elif os.path.exists(sample_dataset):
+        # Utiliser sample_data (ignorer le split car il n'y a qu'un seul dossier)
+        pattern = f"{sample_dataset}/*_leftImg8bit.png"
+    else:
         return []
 
-    # Trouver toutes les images leftImg8bit.png
-    pattern = f"{split_path}/**/*_leftImg8bit.png"
     images = glob(pattern, recursive=True)
-
     return sorted(images)
 
 
@@ -457,6 +690,8 @@ def plot_class_distribution(distribution):
 # ============================================================================
 
 def main():
+    global CLASS_NAMES
+
     # Initialiser le dark mode dans session_state
     if 'dark_mode' not in st.session_state:
         st.session_state.dark_mode = True  # Dark mode par défaut
@@ -540,11 +775,13 @@ def main():
 
     with tab1:
         st.markdown("## 📂 Parcourir les Images du Dataset")
-        st.markdown("Explorez les images de test ou de validation avec détection automatique du ground truth.")
+        st.markdown("Explorez les images de validation avec détection automatique du ground truth.\n\n"
+                    "⚠️ **Note**: Les fichiers test de Cityscapes ne contiennent pas les vraies annotations "
+                    "(labels masqués pour préserver l'intégrité du benchmark). Utilisez **val** pour voir les ground truths.")
 
         # Initialiser session_state pour le carousel
         if 'dataset_split' not in st.session_state:
-            st.session_state.dataset_split = 'test'
+            st.session_state.dataset_split = 'val'
         if 'image_index' not in st.session_state:
             st.session_state.image_index = 0
 
@@ -554,8 +791,8 @@ def main():
             # Sélection du split
             split = st.selectbox(
                 "Dataset",
-                options=['test', 'val'],
-                index=0 if st.session_state.dataset_split == 'test' else 1,
+                options=['val', 'test'],
+                index=0 if st.session_state.dataset_split == 'val' else 1,
                 key='split_selector'
             )
 
@@ -613,11 +850,14 @@ def main():
                 auto_gt = find_ground_truth(image_filename)
 
                 if auto_gt is not None:
-                    st.success(f"✅ Ground truth trouvé automatiquement")
+                    st.success("✅ Ground truth trouvé")
+
+                    # Coloriser le GT (détection automatique du format)
+                    auto_gt_colored = colorize_mask(auto_gt)
 
                     # Afficher le GT
                     with st.expander("👁️ Voir le Ground Truth"):
-                        st.image(auto_gt, caption="Ground Truth", use_container_width=True)
+                        st.image(auto_gt_colored, caption="Ground Truth (colorisé)", use_container_width=True)
 
                     # Bouton pour segmenter
                     if st.button("🚀 Segmenter cette image", type="primary", use_container_width=True, key=f"segment_{st.session_state.image_index}"):
@@ -633,22 +873,27 @@ def main():
                             def __init__(self, data, name):
                                 self.data = data
                                 self.name = name
+                                self.type = 'image/png'  # MIME type
                             def getvalue(self):
                                 return self.data.getvalue()
                             def seek(self, pos):
                                 return self.data.seek(pos)
+                            def read(self, size=-1):
+                                return self.data.read(size)
 
                         fake_file = FakeFile(img_byte_arr, image_filename)
 
-                        # Appel API
-                        success, result = predict_segmentation(fake_file, return_colored=True)
+                        # Appel API - obtenir le masque brut (non colorisé)
+                        success, result = predict_segmentation(fake_file, return_colored=False, return_raw_mask=True)
 
                         if success:
                             st.markdown("---")
                             st.markdown("### 🎯 Résultats de la Segmentation")
 
                             # Calculer les métriques IoU
-                            pred_mask_array = np.array(result['prediction_mask'])
+                            # Décoder le masque base64 (PNG image)
+                            pred_mask_pil = decode_base64_to_image(result['mask_base64'])
+                            pred_mask_array = np.array(pred_mask_pil)
                             gt_mask_array = np.array(auto_gt)
 
                             metrics = calculate_iou_metrics(pred_mask_array, gt_mask_array)
@@ -658,7 +903,14 @@ def main():
                             with col_m1:
                                 st.metric("mIoU", f"{metrics['miou']:.2f}%")
                             with col_m2:
-                                pixel_acc = (pred_mask_array == gt_mask_array).sum() / pred_mask_array.size * 100
+                                # IMPORTANT: Convertir le GT avant de calculer la pixel accuracy
+                                gt_for_accuracy = gt_mask_array.copy()
+                                if gt_for_accuracy.max() > 7:
+                                    mapped_gt = np.zeros(gt_for_accuracy.shape, dtype=np.uint8)
+                                    for original_id, category_id in ID_TO_CATEGORY.items():
+                                        mapped_gt[gt_for_accuracy == original_id] = category_id
+                                    gt_for_accuracy = mapped_gt
+                                pixel_acc = (pred_mask_array == gt_for_accuracy).sum() / pred_mask_array.size * 100
                                 st.metric("Pixel Accuracy", f"{pixel_acc:.2f}%")
                             with col_m3:
                                 st.metric("Classes valides", f"{metrics['num_valid_classes']}/8")
@@ -670,10 +922,14 @@ def main():
                                 st.image(current_image, use_container_width=True)
                             with col_r2:
                                 st.markdown("**Masque Prédit**")
-                                st.image(result['prediction_colored'], use_container_width=True)
+                                # Coloriser le masque localement
+                                colored_mask = colorize_mask(pred_mask_array)
+                                st.image(colored_mask, use_container_width=True)
                             with col_r3:
                                 st.markdown("**Ground Truth**")
-                                st.image(auto_gt, use_container_width=True)
+                                # Recoloriser le GT pour l'affichage des résultats (auto-détection du format)
+                                gt_display = colorize_mask(auto_gt)
+                                st.image(gt_display, use_container_width=True)
 
                             # IoU par classe
                             st.markdown("### 📊 IoU par Classe")
@@ -835,8 +1091,6 @@ def main():
 
                         # Afficher IoU par classe
                         with st.expander("📋 IoU par Classe"):
-                            CLASS_NAMES = ['road', 'sidewalk', 'building', 'wall', 'fence', 'pole', 'traffic light', 'traffic sign']
-
                             for class_id, iou_val in iou_metrics['iou_per_class'].items():
                                 if iou_val > 0:
                                     st.write(f"**{CLASS_NAMES[class_id]}** : {iou_val:.2f}%")
